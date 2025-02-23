@@ -10,6 +10,10 @@
 #define SIZE (1 << 25)
 
 // Kernels
+
+/**
+ * Naive serial kernel with more work per thread.
+ */
 __global__ void reduce_sum_kernel1(float *out, const float4 *arr, int N) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -19,6 +23,9 @@ __global__ void reduce_sum_kernel1(float *out, const float4 *arr, int N) {
   }
 }
 
+/**
+ * Tree reduction with shared memory, that suffers from warp divergence.
+ */
 __global__ void reduce_sum_kernel2(float *out, const float *arr, int N) {
   extern __shared__ float buffer[];
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -41,6 +48,9 @@ __global__ void reduce_sum_kernel2(float *out, const float *arr, int N) {
   }
 }
 
+/**
+ * Non-divergent threads, but with shared memory bank conflicts.
+ */
 __global__ void reduce_sum_kernel3(float *out, const float *arr, int N) {
   extern __shared__ float buffer[];
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -64,6 +74,9 @@ __global__ void reduce_sum_kernel3(float *out, const float *arr, int N) {
   }
 }
 
+/**
+ * Sequential addressing with no bank conflicts.
+ */
 __global__ void reduce_sum_kernel4(float *out, const float *arr, int N) {
   extern __shared__ float buffer[];
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -87,7 +100,7 @@ __global__ void reduce_sum_kernel4(float *out, const float *arr, int N) {
 }
 
 /**
- * Parallel reduction using adjacent elements (log-scaling)
+ * Device helper function for warp unroling.
  */
 __device__ void warpReduce(volatile float *buffer, int tid) {
   buffer[tid] += buffer[tid + 32];
@@ -98,6 +111,9 @@ __device__ void warpReduce(volatile float *buffer, int tid) {
   buffer[tid] += buffer[tid + 1];
 }
 
+/**
+ * Warp unrolling for <32 remaining elements.
+ */
 __global__ void reduce_sum_kernel5(float *out, float *arr, int N) {
   extern __shared__ float buffer[];
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -124,13 +140,19 @@ __global__ void reduce_sum_kernel5(float *out, float *arr, int N) {
   }
 }
 
+/**
+ * Batching with more work per thread, and warp unrolling.
+ */
 __global__ void reduce_sum_kernel6(float *out, float *arr, int N) {
   extern __shared__ float buffer[];
-  int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+  int idx = blockIdx.x * (blockDim.x * 2) + threadIdx.x;
   int tid = threadIdx.x;
 
   if (idx < N) {
+    
+    // Thread coarsening.
     buffer[tid] = arr[idx] + arr[idx + blockDim.x];
+
     __syncthreads();
 
     for (int s = blockDim.x / 2; s > 32; s /= 2) {
@@ -177,10 +199,10 @@ void reduce_sum(int kernel_num, float *out, float *arr, int N, int block_size) {
       break;
     case 6:
       num_blocks = ceil_div(N / 2, block_size);
-      reduce_sum_kernel5<<<num_blocks, block_size, sizeof(float) * block_size>>>(out, arr, N);
+      reduce_sum_kernel6<<<num_blocks, block_size, sizeof(float) * block_size>>>(out, arr, N);
       break;
     default:
-      printf("Invalid kernel number.\n");
+      printf("Invalid kernel number: %d.\n", kernel_num);
       exit(EXIT_FAILURE);
   }
   cudaCheck(cudaGetLastError());
