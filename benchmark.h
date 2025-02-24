@@ -22,7 +22,6 @@ float *make_random_float(size_t N) {
   return arr;
 }
 
-
 // Error check utils
 
 void cudaCheck(cudaError_t error, const char *file, int line) {

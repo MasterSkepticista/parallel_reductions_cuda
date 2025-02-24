@@ -67,7 +67,7 @@ __global__ void reduce_sum_kernel3(float *out, const float *arr, int N) {
       }
       __syncthreads();
     }
-    
+
     if (tid == 0) {
       atomicAdd(out, buffer[0]);
     }
@@ -100,8 +100,30 @@ __global__ void reduce_sum_kernel4(float *out, const float *arr, int N) {
 }
 
 /**
- * Device helper function for warp unroling.
+ * Halved total blocks, all threads perform add.
  */
+__global__ void reduce_sum_kernel5(float *out, const float *arr, int N) {
+  extern __shared__ float buffer[];
+  int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+  int tid = threadIdx.x;
+
+  if (idx < N) {
+    buffer[tid] = arr[idx] + arr[idx + blockDim.x];
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+      if (tid < s) {
+        buffer[tid] += buffer[tid + s];
+      }
+      __syncthreads();
+    }
+
+    if (tid == 0) {
+      atomicAdd(out, buffer[0]);
+    }
+  }
+}
+
 __device__ void warpReduce(volatile float *buffer, int tid) {
   buffer[tid] += buffer[tid + 32];
   buffer[tid] += buffer[tid + 16];
@@ -112,36 +134,7 @@ __device__ void warpReduce(volatile float *buffer, int tid) {
 }
 
 /**
- * Warp unrolling for <32 remaining elements.
- */
-__global__ void reduce_sum_kernel5(float *out, float *arr, int N) {
-  extern __shared__ float buffer[];
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int tid = threadIdx.x;
-
-  if (idx < N) {
-    buffer[tid] = arr[idx];
-    __syncthreads();
-
-    for (int s = blockDim.x / 2; s > 32; s /= 2) {
-      if (tid < s) {
-        buffer[tid] += buffer[tid + s];
-      }
-      __syncthreads();
-    }
-
-    if (tid < 32) {
-      warpReduce(buffer, tid);
-    }
-
-    if (tid == 0) {
-      atomicAdd(out, buffer[0]);
-    }
-  }
-}
-
-/**
- * Batching with more work per thread, and warp unrolling.
+ * Warp unrolling.
  */
 __global__ void reduce_sum_kernel6(float *out, float *arr, int N) {
   extern __shared__ float buffer[];
@@ -149,7 +142,6 @@ __global__ void reduce_sum_kernel6(float *out, float *arr, int N) {
   int tid = threadIdx.x;
 
   if (idx < N) {
-    
     // Thread coarsening.
     buffer[tid] = arr[idx] + arr[idx + blockDim.x];
 
@@ -194,7 +186,7 @@ void reduce_sum(int kernel_num, float *out, float *arr, int N, int block_size) {
       reduce_sum_kernel4<<<num_blocks, block_size, sizeof(float) * block_size>>>(out, arr, N);
       break;
     case 5:
-      num_blocks = ceil_div(N, block_size);
+      num_blocks = ceil_div(N / 2, block_size);
       reduce_sum_kernel5<<<num_blocks, block_size, sizeof(float) * block_size>>>(out, arr, N);
       break;
     case 6:
