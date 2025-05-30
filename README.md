@@ -1,6 +1,6 @@
 # Parallel Reductions in CUDA
 
-Iteratively optimizing a `reduce_sum` operation in CUDA until we reach >95% of GPU performance. This code accompanies the blog post [Embarrasingly Parallel Reduction in CUDA](https://masterskepticista.github.io/posts/2025/02/reducesum/).
+Iteratively optimizing a `reduce_sum` operation in CUDA until we reach >95% of GPU performance. This code accompanies the blog post [Embarrasingly Parallel Reduction in CUDA](https://masterskepticista.github.io/posts/reduce-sum/).
 
 ### Results
 
